@@ -48,17 +48,8 @@ Your own `data` and `newtype` declarations:
 | positional                | `{ $tag: "C"; contents: … }` |
 | all without fields (enum) | `"A" \| "B"`                 |
 
-Constructors are exported as functions: `Rect({ width: 3, height: 4 })` for
-records, `Node(left, 3, right)` for positional ones, and constants like `Leaf`
-for nullary ones. Names that are not valid in JS get a trailing `_`
-(`delete` → `delete_`).
-
 Notes:
 
-- `Int` and `Word` are 32 bits on wasm32.
-- Map keys can be strings, numbers, `Bool`, `Char`, dates or your own types.
-  `Map` and `Set` compare keys by reference.
-- `UTCTime` keeps millisecond precision.
 - Every type the API uses must be exported with all its constructors.
 - Not supported yet: `IO`, polymorphic functions, functions as arguments,
   operators, types with parameters and GADTs.
@@ -69,8 +60,6 @@ Notes:
   that is not one code point, an unknown constructor, …) throws a `TypeError`
   before reaching Haskell.
 - An exception in Haskell throws a `HaskellError`.
-
-Either way, the module keeps working.
 
 ## Usage
 
