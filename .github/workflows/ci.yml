@@ -1,0 +1,30 @@
+name: CI
+
+on:
+    push:
+        branches: [master]
+    pull_request:
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: haskell-actions/setup@v2
+              id: setup
+              with:
+                  ghc-version: "9.10.3"
+                  cabal-version: latest
+
+            - uses: actions/cache@v4
+              with:
+                  path: ${{ steps.setup.outputs.cabal-store }}
+                  key: cabal-${{ runner.os }}-${{ hashFiles('ghc-wasm-bindgen.cabal') }}
+                  restore-keys: cabal-${{ runner.os }}-
+
+            - run: cabal update
+            - run: cabal build all --enable-tests
+            - run: cabal test --test-show-details=direct
+            - run: cabal check
+            - run: cabal sdist

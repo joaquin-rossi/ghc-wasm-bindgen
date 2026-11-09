@@ -1,0 +1,123 @@
+# ghc-wasm-bindgen
+
+Generate JavaScript/TypeScript bindings for a pure Haskell module compiled
+with GHC's WASM backend.
+
+```haskell
+module ShapeWasm (Shape (..), area, scale, largest) where
+import Shape
+```
+
+```ts
+import { area, Circle, largest, Rect, scale } from "shape";
+import { init } from "shape/runtime";
+
+await init(wasmUrl);
+area(Rect({ width: 3, height: 4 }));  // 12
+scale(2, Circle(1));                  // { $tag: "Circle", contents: 2 }
+largest([]);                          // null
+area(Circle("x"));                    // TypeScript error
+```
+
+See [`example/`](example/) for a complete project.
+
+## Types
+
+| Haskell                                         | TypeScript                    |
+| ----------------------------------------------- | ----------------------------- |
+| `Double`, `Float`                               | `number`                      |
+| `Int`, `Word`, `Int8`…`Int64`, `Word8`…`Word64` | `number`                      |
+| `Integer`, `Natural`                            | `bigint`                      |
+| `Bool`                                          | `boolean`                     |
+| `Char`, `String`, `Text`                        | `string`                      |
+| `Day`                                           | `string` (YYYY-MM-DD)         |
+| `UTCTime`                                       | `Date`                        |
+| `Maybe a`                                       | `a \| null`                   |
+| `Either e a`                                    | `{ Left: e } \| { Right: a }` |
+| `(a, b)`                                        | `[a, b]`                      |
+| `[a]`, `Vector a`                               | `a[]`                         |
+| `NonEmpty a`                                    | `[a, ...a[]]`                 |
+| `Set a`, `HashSet a`, `IntSet`                  | `Set<a>`                      |
+| `Map k v`, `HashMap k v`, `IntMap v`            | `Map<k, v>`                   |
+
+Your own `data` and `newtype` declarations:
+
+| Constructors              | TypeScript                   |
+| ------------------------- | ---------------------------- |
+| with record fields        | `{ $tag: "C"; field: … }`    |
+| positional                | `{ $tag: "C"; contents: … }` |
+| all without fields (enum) | `"A" \| "B"`                 |
+
+Constructors are exported as functions: `Rect({ width: 3, height: 4 })` for
+records, `Node(left, 3, right)` for positional ones, and constants like `Leaf`
+for nullary ones. Names that are not valid in JS get a trailing `_`
+(`delete` → `delete_`).
+
+Notes:
+
+- `Int` and `Word` are 32 bits on wasm32.
+- Map keys can be strings, numbers, `Bool`, `Char`, dates or your own types.
+  `Map` and `Set` compare keys by reference.
+- `UTCTime` keeps millisecond precision.
+- Every type the API uses must be exported with all its constructors.
+- Not supported yet: `IO`, polymorphic functions, functions as arguments,
+  operators, types with parameters and GADTs.
+
+## Errors
+
+- An argument that does not fit its type (an out-of-range integer, a `Char`
+  that is not one code point, an unknown constructor, …) throws a `TypeError`
+  before reaching Haskell.
+- An exception in Haskell throws a `HaskellError`.
+
+Either way, the module keeps working.
+
+## Usage
+
+### `build`: cabal projects
+
+From the cabal project that contains the module:
+
+```sh
+ghc-wasm-bindgen build src/ShapeWasm.hs --name shape --out pkg
+```
+
+The module must be exposed by a library, in the same package as the code it
+wraps or in one that depends on it. This writes the npm package `pkg/`
+(`shape.js`, `shape.d.ts`, `shape.wasm`, the runtime and `package.json`).
+Depend on it like any other package and import `shape`, `shape/runtime`
+(`init`, `HaskellError`) and `shape/shape.wasm`.
+
+### `generate`: plain source files
+
+```sh
+ghc-wasm-bindgen generate api/ShapeWasm.hs -i lib --name shape --hs-out gen --js-out out
+```
+
+This writes the Haskell bindings and runtime to `gen/`, and the JS bindings
+and runtime to `out/`. Compiling is up to you:
+
+```sh
+wasm32-wasi-cabal install --lib aeson text --package-env .   # once
+wasm32-wasi-ghc -package ghc-experimental -igen -ilib -iapi gen/ShapeWasmBindings.hs \
+    -no-hs-main -optl-mexec-model=reactor -outputdir build -o shape.wasm
+"$(wasm32-wasi-ghc --print-libdir)"/post-link.mjs -i shape.wasm -o out/ghc_wasm_jsffi.js
+wasm-opt -Oz shape.wasm -o out/shape.wasm
+```
+
+## Installation
+
+```sh
+cabal install ghc-wasm-bindgen
+```
+
+Requirements:
+
+- GHC 9.10 and cabal.
+- The WASM toolchain from
+  [ghc-wasm-meta](https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta) on
+  `PATH` (tested with GHC 9.14):
+
+  ```sh
+  curl https://gitlab.haskell.org/haskell-wasm/ghc-wasm-meta/-/raw/master/bootstrap.sh | FLAVOUR=9.14 sh
+  ```

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>ghc-wasm-bindgen example</title>
+        <style>
+            body { margin: 2rem; font-family: monospace, monospace; }
+            table { border-collapse: collapse; }
+            th, td { padding: 0.7rem 1.6rem; text-align: left; white-space: nowrap; border-bottom: 1px solid #ddd; }
+            .pass td:first-child { color: green; }
+            .fail td:first-child { color: red; }
+        </style>
+    </head>
+    <body>
+        <h1>Shape bindings: checks</h1>
+        <p id="summary">Loading…</p>
+        <table>
+            <thead>
+                <tr><th></th><th>Call</th><th>Expected</th><th>Got</th></tr>
+            </thead>
+            <tbody id="results"></tbody>
+        </table>
+        <script type="module" src="dist/main.js"></script>
+    </body>
+</html>

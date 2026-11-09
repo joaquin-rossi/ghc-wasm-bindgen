@@ -1,0 +1,12 @@
+{
+    "name": "shape",
+    "version": "0.1.0",
+    "type": "module",
+    "main": "./shape.js",
+    "types": "./shape.d.ts",
+    "exports": {
+        ".": { "types": "./shape.d.ts", "default": "./shape.js" },
+        "./runtime": { "types": "./ghc_wasm_bindgen_runtime.d.ts", "default": "./ghc_wasm_bindgen_runtime.js" },
+        "./shape.wasm": "./shape.wasm"
+    }
+}

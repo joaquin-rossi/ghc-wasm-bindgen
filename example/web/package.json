@@ -1,0 +1,17 @@
+{
+  "name": "shape-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "esbuild src/main.ts --bundle --format=esm --loader:.wasm=file --outfile=dist/main.js --servedir=. --serve=8000",
+    "typecheck": "tsc --noEmit -p .",
+    "bundle": "esbuild src/main.ts --bundle --format=esm --loader:.wasm=file --outfile=dist/main.js"
+  },
+  "dependencies": {
+    "shape": "file:../wrapper/pkg"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "typescript": "6.0.3"
+  }
+}
