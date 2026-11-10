@@ -2,11 +2,11 @@
     "name": "shape",
     "version": "0.1.0",
     "type": "module",
-    "main": "./shape.js",
-    "types": "./shape.d.ts",
+    "main": "./src/shape.js",
+    "types": "./src/shape.d.ts",
     "exports": {
-        ".": { "types": "./shape.d.ts", "default": "./shape.js" },
-        "./runtime": { "types": "./ghc_wasm_bindgen_runtime.d.ts", "default": "./ghc_wasm_bindgen_runtime.js" },
-        "./shape.wasm": "./shape.wasm"
+        ".": { "types": "./src/shape.d.ts", "default": "./src/shape.js" },
+        "./runtime": { "types": "./src/ghc_wasm_bindgen_runtime.d.ts", "default": "./src/ghc_wasm_bindgen_runtime.js" },
+        "./shape.wasm": "./src/shape.wasm"
     }
 }

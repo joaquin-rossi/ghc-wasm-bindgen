@@ -2,7 +2,7 @@
 
 -- | Bindings for a Haskell API module, in two modes:
 --
--- * 'build' (cabal projects): builds an npm package (JS bindings + .wasm).
+-- * 'build' (cabal projects): builds the JS bindings and the .wasm.
 --   The package that contains the module is built natively, so the module can
 --   be inspected with its real dependencies; then the Haskell bindings are
 --   generated, together with the Haskell runtime module, as a package under
@@ -25,8 +25,8 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Char8 as BC
 import Data.Char (isSpace, toLower, toUpper)
 import Data.FileEmbed (embedFile)
-import Data.List (intercalate, isSuffixOf, stripPrefix)
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.List (isSuffixOf, stripPrefix)
+import Data.Maybe (mapMaybe)
 import qualified Data.Text.Encoding as TE
 import System.Directory
 import System.Exit (ExitCode (..))
@@ -46,7 +46,7 @@ data Options = Options
   , optName :: String
     -- ^ Base name of the outputs: NAME.js, NAME.d.ts, NAME.wasm.
   , optOut :: FilePath
-    -- ^ Directory of the npm package to write.
+    -- ^ Directory to write the JS bindings, runtime and .wasm to.
   }
 
 newtype BuildError = BuildError String
@@ -143,8 +143,7 @@ buildWasm o pkg api = do
   run "wasm-opt" ["-Oz", wasm, "-o", optOut o </> name <.> "wasm"]
 
   -- JS side.
-  mapM_ (\(file, contents) -> writeIfChanged (optOut o </> file) contents) $
-    ("package.json", packageJson name (pkgVersion pkg)) : jsFiles name api
+  mapM_ (\(file, contents) -> writeIfChanged (optOut o </> file) contents) (jsFiles name api)
   pure (optOut o)
 
 -- | The JS bindings and runtime, by file name.
@@ -167,7 +166,7 @@ workDir = "dist-newstyle" </> "ghc-wasm-bindgen"
 
 -- Cabal --------------------------------------------------------------------
 
-data Package = Package {pkgName :: String, pkgVersion :: String}
+newtype Package = Package {pkgName :: String}
 
 -- | The cabal package that contains the API module: the nearest .cabal file
 -- above it.
@@ -180,7 +179,7 @@ findPackage file = makeAbsolute (takeDirectory file) >>= go
         f : _ -> do
           fields <- mapMaybe field . lines . BC.unpack <$> BS.readFile (dir </> f)
           case lookup "name" fields of
-            Just n -> pure (Package n (fromMaybe "0" (lookup "version" fields)))
+            Just n -> pure (Package n)
             Nothing -> throwIO (BuildError (dir </> f ++ " has no name field"))
         [] | takeDirectory dir == dir -> throwIO (BuildError ("no .cabal file found above " ++ file))
            | otherwise -> go (takeDirectory dir)
@@ -229,33 +228,6 @@ hsFileName name = concatMap capitalize (words (map dashToSpace name)) ++ "WasmBi
 -- | Cabal package and component names allow letters, digits and @-@.
 cabalName :: String -> String
 cabalName = map (\c -> if c == '_' then '-' else c)
-
--- npm ----------------------------------------------------------------------
-
-packageJson :: String -> String -> ByteString
-packageJson name version =
-  BC.pack . unlines $
-    [ "{"
-    , "    \"name\": " ++ show (map toLower name) ++ ","
-    , "    \"version\": " ++ show (semver version) ++ ","
-    , "    \"type\": \"module\","
-    , "    \"main\": " ++ show ("./" ++ name ++ ".js") ++ ","
-    , "    \"types\": " ++ show ("./" ++ name ++ ".d.ts") ++ ","
-    , "    \"exports\": {"
-    , "        \".\": { \"types\": " ++ show ("./" ++ name ++ ".d.ts") ++ ", \"default\": " ++ show ("./" ++ name ++ ".js") ++ " },"
-    , "        \"./runtime\": { \"types\": \"./ghc_wasm_bindgen_runtime.d.ts\", \"default\": \"./ghc_wasm_bindgen_runtime.js\" },"
-    , "        " ++ show ("./" ++ name ++ ".wasm") ++ ": " ++ show ("./" ++ name ++ ".wasm")
-    , "    }"
-    , "}"
-    ]
-
--- | Cabal versions have any number of components; npm wants exactly three.
-semver :: String -> String
-semver v = intercalate "." (take 3 (splitOn '.' v ++ repeat "0"))
-  where
-    splitOn c s = case break (== c) s of
-      (a, []) -> [a]
-      (a, _ : rest) -> a : splitOn c rest
 
 -- Files and processes ------------------------------------------------------
 

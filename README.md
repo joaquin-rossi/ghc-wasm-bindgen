@@ -68,14 +68,32 @@ Notes:
 From the cabal project that contains the module:
 
 ```sh
-ghc-wasm-bindgen build src/ShapeWasm.hs --name shape --out pkg
+ghc-wasm-bindgen build src/ShapeWasm.hs --name shape --out pkg/src
 ```
 
 The module must be exposed by a library, in the same package as the code it
-wraps or in one that depends on it. This writes the npm package `pkg/`
-(`shape.js`, `shape.d.ts`, `shape.wasm`, the runtime and `package.json`).
-Depend on it like any other package and import `shape`, `shape/runtime`
-(`init`, `HaskellError`) and `shape/shape.wasm`.
+wraps or in one that depends on it. This writes `shape.js`, `shape.d.ts`,
+`shape.wasm` and the JS runtime to `pkg/src/`, and nothing else, so the
+directory around it can be maintained by hand, even in another repository.
+
+To publish it as an npm package, write its `package.json` yourself, for
+example:
+
+```json
+{
+    "name": "shape",
+    "version": "0.1.0",
+    "type": "module",
+    "exports": {
+        ".": { "types": "./src/shape.d.ts", "default": "./src/shape.js" },
+        "./runtime": { "types": "./src/ghc_wasm_bindgen_runtime.d.ts", "default": "./src/ghc_wasm_bindgen_runtime.js" },
+        "./shape.wasm": "./src/shape.wasm"
+    }
+}
+```
+
+Then import `shape`, `shape/runtime` (`init`, `HaskellError`) and
+`shape/shape.wasm`.
 
 ### `generate`: plain source files
 

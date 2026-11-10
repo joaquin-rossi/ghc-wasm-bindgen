@@ -5,7 +5,8 @@ A pure Haskell library exposed to a web page.
 ```
 haskell/                  the library (Shape.hs)
 wrapper/src/ShapeWasm.hs  the API exposed to JS (its export list)
-wrapper/pkg/              built npm package (shape.js, shape.wasm, …), committed
+wrapper/pkg/package.json  npm package, written by hand
+wrapper/pkg/src/          generated (shape.js, shape.wasm, …), committed
 web/src/main.ts           the page, depends on the package
 ```
 
@@ -17,7 +18,7 @@ npm install
 npm start    # http://127.0.0.1:8000/
 ```
 
-`wrapper/pkg/` is committed (its `.wasm` through Git LFS), so this needs no
+`wrapper/pkg/src/` is committed (its `.wasm` through Git LFS), so this needs no
 Haskell toolchain.
 
 ## Rebuild after changing the Haskell code
