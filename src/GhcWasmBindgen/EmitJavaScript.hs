@@ -33,15 +33,16 @@ emitJs name api =
       ++ concatMap jsType (apiTypes api)
       ++ intercalate [""] (map jsFunction (apiFns api))
 
--- | @NAME.d.ts@
+-- | @NAME.d.ts@. Its imports name the @.js@ file, as @node16@/@nodenext@
+-- module resolution requires (and @bundler@ accepts).
 emitDts :: Api -> Text
 emitDts api =
   T.unlines $
     [ header api
     , ""
-    , "import type * as $rt from \"./ghc_wasm_bindgen_internal\";"
+    , "import type * as $rt from \"./ghc_wasm_bindgen_internal.js\";"
     , ""
-    , "export { HaskellError, type Either } from \"./ghc_wasm_bindgen_internal\";"
+    , "export { HaskellError, type Either } from \"./ghc_wasm_bindgen_internal.js\";"
     , ""
     ]
       ++ concatMap dtsType (apiTypes api)
