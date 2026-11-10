@@ -1,6 +1,6 @@
 cabal-version:      3.0
 name:               ghc-wasm-bindgen
-version:            0.2.0.0
+version:            0.3.0.0
 synopsis:           JavaScript/TypeScript bindings for GHC's WASM backend
 description:
     Generate JavaScript and TypeScript bindings for a pure Haskell module
@@ -22,8 +22,6 @@ tested-with:        GHC == 9.10.3
 extra-doc-files:
     README.md
 extra-source-files:
-    runtime-js/ghc_wasm_bindgen_runtime.js
-    runtime-js/ghc_wasm_bindgen_runtime.d.ts
     runtime-js/ghc_wasm_bindgen_internal.js
     runtime-js/ghc_wasm_bindgen_internal.d.ts
     runtime-js/ghc_wasm_jsffi.d.ts

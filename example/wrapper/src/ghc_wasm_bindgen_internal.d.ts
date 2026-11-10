@@ -1,9 +1,10 @@
 // ghc-wasm-bindgen runtime internals, imported by the generated bindings.
 
-import type { Either } from "./ghc_wasm_bindgen_runtime";
+/** `Either e a` from Haskell. */
+export type Either<E, A> = { Left: E } | { Right: A };
 
-/** Instantiates the .wasm module; must resolve before any binding is called. */
-export function init(source: string | URL | BufferSource): Promise<void>;
+/** Instantiates the .wasm module; called by the generated module. */
+export function load(url: URL): Promise<void>;
 
 /** A Haskell exception raised during a call. */
 export class HaskellError extends Error {}

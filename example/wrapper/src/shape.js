@@ -2,6 +2,10 @@
 
 import * as $rt from "./ghc_wasm_bindgen_internal.js";
 
+export { HaskellError } from "./ghc_wasm_bindgen_internal.js";
+
+await $rt.load(new URL("./shape.wasm", import.meta.url));
+
 export const Circle = (a0) => ({ $tag: "Circle", contents: a0 });
 export const Rect = ({ width, height }) => ({ $tag: "Rect", width, height });
 

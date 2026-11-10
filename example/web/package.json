@@ -3,12 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "esbuild src/main.ts --bundle --format=esm --loader:.wasm=file --outfile=dist/main.js --servedir=. --serve=8000",
+    "start": "npm run wasm && esbuild src/main.ts --bundle --format=esm --outfile=dist/main.js --servedir=. --serve=8000",
     "typecheck": "tsc --noEmit -p .",
-    "bundle": "esbuild src/main.ts --bundle --format=esm --loader:.wasm=file --outfile=dist/main.js"
+    "bundle": "npm run wasm && esbuild src/main.ts --bundle --format=esm --outfile=dist/main.js",
+    "wasm": "mkdir -p dist && cp node_modules/shape/src/shape.wasm dist/"
   },
   "dependencies": {
-    "shape": "file:../wrapper/pkg"
+    "shape": "file:../wrapper"
   },
   "devDependencies": {
     "esbuild": "0.28.2",

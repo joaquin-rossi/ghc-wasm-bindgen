@@ -21,7 +21,8 @@ usage =
     , "          (ghc-wasm-meta) on PATH."
     , "generate  For plain source files: writes NameWasmBindings.hs and the Haskell"
     , "          runtime to --hs-out, NAME.js, NAME.d.ts and the JS runtime to --js-out."
-    , "          Compiling them is up to you."
+    , "          Compiling them is up to you; NAME.js loads NAME.wasm from its own"
+    , "          directory."
     , ""
     , "  MODULE.hs      module whose export list is the API (e.g. src/ShapeWasm.hs)"
     , "  --name NAME    package and file name (e.g. shape)"
@@ -56,7 +57,7 @@ parse = \case
         | null (getModule o) -> go rest (setModule f o) setModule getModule setName flags
         | otherwise -> Left ("unexpected argument " ++ f)
     name n
-      | n `elem` ["ghc_wasm_bindgen_runtime", "ghc_wasm_bindgen_internal", "ghc_wasm_jsffi"] = Left ("--name " ++ n ++ " would overwrite the runtime files")
+      | n `elem` ["ghc_wasm_bindgen_internal", "ghc_wasm_jsffi"] = Left ("--name " ++ n ++ " would overwrite the runtime files")
       | null n || not (all (\c -> isAlphaNum c || c `elem` ("_-" :: String)) n) = Left ("--name must be letters, digits, _ or -: " ++ show n)
       | otherwise = Right n
 

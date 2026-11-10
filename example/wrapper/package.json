@@ -1,0 +1,10 @@
+{
+    "name": "shape",
+    "version": "0.1.0",
+    "type": "module",
+    "main": "./src/shape.js",
+    "types": "./src/shape.d.ts",
+    "exports": {
+        ".": { "types": "./src/shape.d.ts", "default": "./src/shape.js" }
+    }
+}

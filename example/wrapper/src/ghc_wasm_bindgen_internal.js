@@ -3,27 +3,29 @@
 import jsffiImports from "./ghc_wasm_jsffi.js";
 
 let wasm;
-let ready;
 
-export function init(source) {
-    return (ready ??= load(source));
-}
-
-async function load(source) {
-    if (typeof source === "string" || source instanceof URL) {
-        const res = await fetch(source);
-        if (!res.ok) throw new Error(`ghc-wasm-bindgen: fetching ${source} failed (${res.status})`);
-        source = await res.arrayBuffer();
-    }
+// Instantiates the .wasm module. Called once, by the generated module's
+// top-level await, so the bindings are ready as soon as it is imported.
+export async function load(url) {
     // jsffiImports needs the exports, which exist only after instantiation.
     const knot = {};
-    const { instance } = await WebAssembly.instantiate(source, {
+    const { instance } = await WebAssembly.instantiate(await read(url), {
         ghc_wasm_jsffi: jsffiImports(knot),
         wasi_snapshot_preview1: wasi(knot),
     });
     Object.assign(knot, instance.exports);
     knot._initialize();
     wasm = knot;
+}
+
+// Node's fetch does not read file: URLs. getBuiltinModule (rather than an
+// import) keeps bundlers from trying to resolve node:fs for the browser.
+async function read(url) {
+    const fs = url.protocol === "file:" && globalThis.process?.getBuiltinModule?.("node:fs/promises");
+    if (fs) return fs.readFile(url);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`ghc-wasm-bindgen: fetching ${url} failed (${res.status})`);
+    return res.arrayBuffer();
 }
 
 // WASI subset the RTS uses for pure code; other calls return ENOSYS.
@@ -72,7 +74,6 @@ export class HaskellError extends Error {
 
 // __ghcWasmBindgenError is set by GhcWasmBindgen.Runtime.guarded.
 export function call(fn, ...args) {
-    if (!wasm) throw new Error("ghc-wasm-bindgen: await init() before calling the API");
     const result = wasm[fn](...args);
     const err = wasm.__ghcWasmBindgenError;
     if (err !== undefined) {

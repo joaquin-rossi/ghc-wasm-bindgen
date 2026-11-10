@@ -1,6 +1,4 @@
 import { area, Circle, isSquare, largest, Rect, scale, totalArea, type Shape } from "shape";
-import { init } from "shape/runtime";
-import wasm from "shape/shape.wasm";
 
 const results = document.querySelector<HTMLTableSectionElement>("#results")!;
 const summary = document.querySelector<HTMLParagraphElement>("#summary")!;
@@ -23,8 +21,6 @@ function check(code: string, expected: string, call: () => unknown) {
         row.insertCell().textContent = text;
     }
 }
-
-await init(new URL(wasm, import.meta.url));
 
 check(
     "area(Rect({ width: 3, height: 4 }))",

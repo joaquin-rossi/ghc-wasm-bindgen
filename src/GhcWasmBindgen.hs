@@ -27,6 +27,7 @@ import Data.Char (isSpace, toLower, toUpper)
 import Data.FileEmbed (embedFile)
 import Data.List (isSuffixOf, stripPrefix)
 import Data.Maybe (mapMaybe)
+import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 import System.Directory
 import System.Exit (ExitCode (..))
@@ -149,10 +150,8 @@ buildWasm o pkg api = do
 -- | The JS bindings and runtime, by file name.
 jsFiles :: String -> Api -> [(FilePath, ByteString)]
 jsFiles name api =
-  [ (name <.> "js", TE.encodeUtf8 (emitJs api))
+  [ (name <.> "js", TE.encodeUtf8 (emitJs (T.pack name) api))
   , (name <.> "d.ts", TE.encodeUtf8 (emitDts api))
-  , ("ghc_wasm_bindgen_runtime.js", $(embedFile "runtime-js/ghc_wasm_bindgen_runtime.js"))
-  , ("ghc_wasm_bindgen_runtime.d.ts", $(embedFile "runtime-js/ghc_wasm_bindgen_runtime.d.ts"))
   , ("ghc_wasm_bindgen_internal.js", $(embedFile "runtime-js/ghc_wasm_bindgen_internal.js"))
   , ("ghc_wasm_bindgen_internal.d.ts", $(embedFile "runtime-js/ghc_wasm_bindgen_internal.d.ts"))
   , ("ghc_wasm_jsffi.d.ts", $(embedFile "runtime-js/ghc_wasm_jsffi.d.ts"))

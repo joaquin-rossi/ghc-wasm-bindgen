@@ -10,9 +10,7 @@ import Shape
 
 ```ts
 import { area, Circle, largest, Rect, scale } from "shape";
-import { init } from "shape/runtime";
 
-await init(wasmUrl);
 area(Rect({ width: 3, height: 4 }));  // 12
 scale(2, Circle(1));                  // { $tag: "Circle", contents: 2 }
 largest([]);                          // null
@@ -59,7 +57,7 @@ Notes:
 - An argument that does not fit its type (an out-of-range integer, a `Char`
   that is not one code point, an unknown constructor, …) throws a `TypeError`
   before reaching Haskell.
-- An exception in Haskell throws a `HaskellError`.
+- An exception in Haskell throws a `HaskellError` (exported by the bindings).
 
 ## Usage
 
@@ -85,15 +83,10 @@ example:
     "version": "0.1.0",
     "type": "module",
     "exports": {
-        ".": { "types": "./src/shape.d.ts", "default": "./src/shape.js" },
-        "./runtime": { "types": "./src/ghc_wasm_bindgen_runtime.d.ts", "default": "./src/ghc_wasm_bindgen_runtime.js" },
-        "./shape.wasm": "./src/shape.wasm"
+        ".": { "types": "./src/shape.d.ts", "default": "./src/shape.js" }
     }
 }
 ```
-
-Then import `shape`, `shape/runtime` (`init`, `HaskellError`) and
-`shape/shape.wasm`.
 
 ### `generate`: plain source files
 
@@ -111,6 +104,25 @@ wasm32-wasi-ghc -package ghc-experimental -igen -ilib -iapi gen/ShapeWasmBinding
 "$(wasm32-wasi-ghc --print-libdir)"/post-link.mjs -i shape.wasm -o out/ghc_wasm_jsffi.js
 wasm-opt -Oz shape.wasm -o out/shape.wasm
 ```
+
+`shape.wasm` must end up next to `shape.js`.
+
+## Loading
+
+`shape.js` loads `shape.wasm` from its own directory with a top-level
+`await`, so importing it is enough: the functions are ready to call. If the
+`.wasm` cannot be loaded, the import fails.
+
+This needs ES2022 modules (top-level `await`): current browsers, Node 20.16+
+or 22.3+, and bundlers targeting ES2022 or later. The `.wasm` is referenced as
+`new URL("./shape.wasm", import.meta.url)`:
+
+- webpack 5, Vite and Parcel copy it to the output on their own. With Vite,
+  exclude the package from dependency pre-bundling
+  (`optimizeDeps: { exclude: ["shape"] }`), which would break that reference
+  in development.
+- esbuild leaves the reference as is: copy `shape.wasm` next to the bundle
+  (the [example](example/) does this).
 
 ## Installation
 
