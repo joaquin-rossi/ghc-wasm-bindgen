@@ -26,6 +26,8 @@ data Api = Api
     -- ^ Haskell module name, e.g. @WasmApi@.
   , apiTypes :: [Adt]
     -- ^ Data types that cross the boundary, sorted by name (deterministic output).
+  , apiOpaqueTypes :: [Text]
+    -- ^ Abstract types retained in Haskell and passed by reference.
   , apiFns :: [Fn]
     -- ^ Exported functions, sorted by name.
   }
@@ -92,6 +94,7 @@ data Ty
   | TEither Ty Ty
   | TTuple [Ty]
   | TAdt Text
+  | TOpaque Text
   deriving (Eq, Show)
 
 -- | Map keys that aeson writes as object keys (text); any other key type
@@ -119,6 +122,7 @@ data Marshal
   = Native   -- ^ Double, Int, Bool: passed as JS numbers/booleans.
   | Str      -- ^ String: JSString, no JSON.
   | TextStr  -- ^ Text: JSString, no JSON.
+  | Ref      -- ^ Abstract types: an owned StablePtr, borrowed by arguments.
   | Json     -- ^ Everything else: JSON in a JSString.
   deriving (Eq, Show)
 
@@ -130,6 +134,7 @@ marshal = \case
   TBool -> Native
   TString -> Str
   TText -> TextStr
+  TOpaque _ -> Ref
   _ -> Json
 
 -- | aeson's @allNullaryToStringTag@ (on by default): a type whose

@@ -13,6 +13,16 @@ cases =
   , ("Polymorphic.hs", "polymorphic functions are not supported")
   , ("Unexported.hs", "Hidden: used by the API, so the type and all its constructors must be exported")
   , ("UsesIO.hs", "IO is not supported yet")
+  , ("Partial.hs", "Partial(Two)")
+  , ("Nested.hs", "many: opaque type Secret is only supported as a direct function argument or result")
+  , ("Nested.hs", "optional: opaque type Secret")
+  , ("Nested.hs", "alternative: opaque type Secret")
+  , ("Nested.hs", "pair: opaque type Secret")
+  , ("Nested.hs", "consume: opaque type Secret")
+  , ("Nested.hs", "values: opaque type Secret")
+  , ("Nested.hs", "keys: opaque type Secret")
+  , ("NestedField.hs", "Box.Box field secret: opaque type Secret")
+  , ("AbstractParameterized.hs", "types with parameters are not supported yet")
   ]
 
 tests :: IO Bool

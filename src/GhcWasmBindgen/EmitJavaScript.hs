@@ -27,9 +27,11 @@ emitJs name api =
     , ""
     , "export { HaskellError } from \"./ghc_wasm_bindgen_internal.js\";"
     , ""
-    , "await $rt.load(new URL(" <> quote ("./" <> name <> ".wasm") <> ", import.meta.url));"
+    , "const $wasm = await $rt.load(new URL(" <> quote ("./" <> name <> ".wasm") <> ", import.meta.url));"
     , ""
     ]
+      ++ ["const $ref" <> n <> " = $wasm.opaque(" <> quote n <> ");" | n <- apiOpaqueTypes api]
+      ++ ["" | not (null (apiOpaqueTypes api))]
       ++ concatMap jsType (apiTypes api)
       ++ intercalate [""] (map jsFunction (apiFns api))
 
@@ -45,10 +47,20 @@ emitDts api =
     , "export { HaskellError, type Either } from \"./ghc_wasm_bindgen_internal.js\";"
     , ""
     ]
+      ++ concatMap dtsOpaque (apiOpaqueTypes api)
       ++ concatMap dtsType (apiTypes api)
       ++ map dtsFunction (apiFns api)
 
 -- Declarations (.d.ts) -----------------------------------------------------
+
+dtsOpaque :: Text -> [Text]
+dtsOpaque n =
+  [ "declare const $brand" <> n <> ": unique symbol;"
+  , "export interface " <> n <> " extends $rt.Opaque {"
+  , "    readonly [$brand" <> n <> "]: void;"
+  , "}"
+  , ""
+  ]
 
 dtsType :: Adt -> [Text]
 dtsType adt
@@ -116,6 +128,7 @@ tsType = \case
   TEither l r -> "$rt.Either<" <> tsType l <> ", " <> tsType r <> ">"
   TTuple ts -> tuple ts
   TAdt n -> n
+  TOpaque n -> n
   where
     element t@(TMaybe _) = "(" <> tsType t <> ")"
     element t = tsType t
@@ -138,10 +151,19 @@ jsType adt
       | otherwise = "export const " <> conName c <> " = (" <> jsParams c <> ") => (" <> conValue c <> ");"
 
 jsFunction :: Fn -> [Text]
-jsFunction f = [lhs, "    " <> body]
+jsFunction f =
+  [lhs]
+    ++ ["    const $" <> a <> " = " <> arg t a <> ";" | (t, a) <- params, marshal t /= Ref]
+    ++ ["    return " <> body, "};"]
   where
-    lhs = "export const " <> jsIdent (fnName f) <> " = (" <> T.intercalate ", " (fnParams f) <> ") =>"
-    body = result ("$rt.call(" <> T.intercalate ", " (quote (exportSymbol f) : zipWith arg (fnArgs f) (fnParams f)) <> ")") <> ";"
+    params = zip (fnArgs f) (fnParams f)
+    lhs = "export const " <> jsIdent (fnName f) <> " = (" <> T.intercalate ", " (fnParams f) <> ") => {"
+    -- Finish conversions that can run user code (getters, iterators, toJSON)
+    -- before unwrapping any borrowed pointer, so disposal cannot race the call.
+    argument (TOpaque n, a) = "$ref" <> n <> ".unwrap(" <> a <> ")"
+    argument (_, a) = "$" <> a
+    body = result ("$wasm.call(" <> T.intercalate ", " (quote (exportSymbol f) : map argument params) <> ")") <> ";"
+    result e | TOpaque n <- fnResult f = "$ref" <> n <> ".wrap(" <> e <> ")"
     result e
       | marshal (fnResult f) == Json = decode (fnResult f) ("$rt.unpack(" <> e <> ")")
       | fnResult f == TBool = "$rt.unpackBool(" <> e <> ")"

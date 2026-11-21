@@ -18,6 +18,12 @@ module GhcWasmBindgen.Runtime
   , toJS
   , Fallback
   , guarded
+  , guardedIO
+  , evaluate
+  , StablePtr
+  , deRefStablePtr
+  , retain
+  , release
   ) where
 
 import Control.Exception (SomeException, catch, displayException, evaluate)
@@ -26,6 +32,8 @@ import Data.Aeson.Text (encodeToLazyText)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Lazy as TL
+import Foreign.Ptr (nullPtr)
+import Foreign.StablePtr (StablePtr, castPtrToStablePtr, deRefStablePtr, freeStablePtr, newStablePtr)
 import GHC.Generics (Generic, Rep)
 import GHC.Wasm.Prim (JSString (..), fromJSString, toJSString)
 
@@ -59,10 +67,19 @@ toJSText = toJSString . T.unpack
 -- | An uncaught exception in a sync export kills the RTS, so every export
 -- runs through here. The message goes to a slot that
 -- ghc_wasm_bindgen_internal.js checks after each call, and JS gets a
--- placeholder it discards. Results are primitives or JSStrings, so WHNF
--- forces everything.
+-- placeholder it discards. Opaque results are evaluated before retention;
+-- evaluating a StablePtr itself does not evaluate the referenced value.
 guarded :: Fallback a => a -> IO a
-guarded x = evaluate x `catch` \(e :: SomeException) -> fallback <$ setError (toJSString (displayException e))
+guarded = guardedIO . evaluate
+
+guardedIO :: Fallback a => IO a -> IO a
+guardedIO action = (action >>= evaluate) `catch` \(e :: SomeException) -> fallback <$ setError (toJSString (displayException e))
+
+retain :: a -> IO (StablePtr a)
+retain x = evaluate x >>= newStablePtr
+
+release :: StablePtr a -> IO Int
+release p = 0 <$ freeStablePtr p
 
 foreign import javascript unsafe "__exports.__ghcWasmBindgenError = $1"
   setError :: JSString -> IO ()
@@ -74,3 +91,4 @@ instance Fallback Double where fallback = 0
 instance Fallback Int where fallback = 0
 instance Fallback Bool where fallback = False
 instance Fallback JSString where fallback = toJSString ""
+instance Fallback (StablePtr a) where fallback = castPtrToStablePtr nullPtr
