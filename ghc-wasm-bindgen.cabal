@@ -27,6 +27,12 @@ extra-source-files:
     runtime-js/ghc_wasm_jsffi.d.ts
     runtime-hs/GhcWasmBindgen/Runtime.hs
     test/errors/*.hs
+    test/wasm/*.hs
+    test/wasm/*.cabal
+    test/wasm/cabal.project
+    test/*.mjs
+    test/*.ts
+    test/*.sh
 
 source-repository head
     type:     git
@@ -72,5 +78,5 @@ test-suite tests
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
     main-is:          Main.hs
-    other-modules:    Errors
-    build-depends:    ghc-wasm-bindgen
+    other-modules:    Errors, Opaque
+    build-depends:    ghc-wasm-bindgen, directory

@@ -11,6 +11,10 @@ jobs:
         steps:
             - uses: actions/checkout@v4
 
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: "24"
+
             - uses: haskell-actions/setup@v2
               id: setup
               with:
@@ -26,5 +30,7 @@ jobs:
             - run: cabal update
             - run: cabal build all --enable-tests
             - run: cabal test --test-show-details=direct
+            - run: node --test test/runtime.test.mjs
+            - run: npm exec --yes --package=typescript@6.0.3 -- tsc --noEmit --strict --target ES2022 --module ES2022 --moduleResolution bundler test/opaque-types.ts
             - run: cabal check
             - run: cabal sdist

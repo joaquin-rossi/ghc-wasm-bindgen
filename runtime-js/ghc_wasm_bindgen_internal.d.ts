@@ -4,12 +4,25 @@
 export type Either<E, A> = { Left: E } | { Right: A };
 
 /** Instantiates the .wasm module; called by the generated module. */
-export function load(url: URL): Promise<void>;
+export function load(url: URL): Promise<Runtime>;
+
+export interface Opaque {
+    /** Releases this handle. Repeated calls have no effect. */
+    dispose(): void;
+}
+
+export interface OpaqueType<T extends Opaque> {
+    wrap(pointer: number): T;
+    unwrap(ref: T): number;
+}
+
+export interface Runtime {
+    call(fn: string, ...args: unknown[]): any;
+    opaque<T extends Opaque>(name: string): OpaqueType<T>;
+}
 
 /** A Haskell exception raised during a call. */
 export class HaskellError extends Error {}
-
-export function call(fn: string, ...args: unknown[]): any;
 
 /** Opaque transfer representation. */
 export type Value = { readonly __value: unique symbol };

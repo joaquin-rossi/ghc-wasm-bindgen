@@ -2,8 +2,6 @@
 
 import jsffiImports from "./ghc_wasm_jsffi.js";
 
-let wasm;
-
 // Instantiates the .wasm module. Called once, by the generated module's
 // top-level await, so the bindings are ready as soon as it is imported.
 export async function load(url) {
@@ -15,7 +13,7 @@ export async function load(url) {
     });
     Object.assign(knot, instance.exports);
     knot._initialize();
-    wasm = knot;
+    return runtime(knot);
 }
 
 // Node's fetch does not read file: URLs. getBuiltinModule (rather than an
@@ -72,15 +70,59 @@ export class HaskellError extends Error {
     name = "HaskellError";
 }
 
-// __ghcWasmBindgenError is set by GhcWasmBindgen.Runtime.guarded.
-export function call(fn, ...args) {
-    const result = wasm[fn](...args);
-    const err = wasm.__ghcWasmBindgenError;
-    if (err !== undefined) {
-        wasm.__ghcWasmBindgenError = undefined;
-        throw new HaskellError(err);
+// Each loaded instance owns its calls, opaque type identities and finalizers.
+function runtime(wasm) {
+    // __ghcWasmBindgenError is set by GhcWasmBindgen.Runtime.guardedIO.
+    function call(fn, ...args) {
+        const result = wasm[fn](...args);
+        const err = wasm.__ghcWasmBindgenError;
+        if (err !== undefined) {
+            wasm.__ghcWasmBindgenError = undefined;
+            throw new HaskellError(err);
+        }
+        return result;
     }
-    return result;
+
+    function release(state) {
+        if (!state.live) return;
+        state.live = false;
+        call("ghc_wasm_bindgen_free", state.pointer);
+    }
+
+    const finalizers = typeof FinalizationRegistry === "function" ? new FinalizationRegistry(release) : undefined;
+
+    function opaque(name) {
+        // A separate WeakMap for every type also checks instance ownership.
+        const refs = new WeakMap();
+        return {
+            wrap(pointer) {
+                if (!Number.isInteger(pointer) || pointer === 0) throw new TypeError(`ghc-wasm-bindgen: invalid ${name} handle`);
+                const state = { pointer, live: true };
+                try {
+                    const ref = Object.freeze({
+                        dispose: () => {
+                            finalizers?.unregister(ref);
+                            release(state);
+                        },
+                    });
+                    refs.set(ref, state);
+                    // The held state must never reference ref, even indirectly.
+                    finalizers?.register(ref, state, ref);
+                    return ref;
+                } catch (error) {
+                    release(state);
+                    throw error;
+                }
+            },
+            unwrap(ref) {
+                const state = refs.get(ref);
+                if (!state?.live) throw new TypeError(`ghc-wasm-bindgen: expected a live ${name} reference from this instance`);
+                return state.pointer;
+            },
+        };
+    }
+
+    return { call, opaque };
 }
 
 // Values: aeson JSON, with the options in GhcWasmBindgen.Runtime. Encoders

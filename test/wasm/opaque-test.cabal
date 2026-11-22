@@ -1,0 +1,10 @@
+cabal-version: 3.0
+name: opaque-test
+version: 0
+build-type: Simple
+
+library
+    exposed-modules: OpaqueApi
+    hs-source-dirs: .
+    default-language: GHC2021
+    build-depends: base

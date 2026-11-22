@@ -27,9 +27,11 @@ emitJs name api =
     , ""
     , "export { HaskellError } from \"./ghc_wasm_bindgen_internal.js\";"
     , ""
-    , "await $rt.load(new URL(" <> quote ("./" <> name <> ".wasm") <> ", import.meta.url));"
+    , "const $wasm = await $rt.load(new URL(" <> quote ("./" <> name <> ".wasm") <> ", import.meta.url));"
     , ""
     ]
+      ++ ["const $ref" <> jsIdent n <> " = $wasm.opaque(" <> quote n <> ");" | n <- apiOpaqueTypes api]
+      ++ ["" | not (null (apiOpaqueTypes api))]
       ++ concatMap jsType (apiTypes api)
       ++ intercalate [""] (map jsFunction (apiFns api))
 
@@ -45,27 +47,37 @@ emitDts api =
     , "export { HaskellError, type Either } from \"./ghc_wasm_bindgen_internal.js\";"
     , ""
     ]
+      ++ concatMap dtsOpaque (apiOpaqueTypes api)
       ++ concatMap dtsType (apiTypes api)
       ++ map dtsFunction (apiFns api)
 
 -- Declarations (.d.ts) -----------------------------------------------------
 
+dtsOpaque :: Text -> [Text]
+dtsOpaque n =
+  [ "declare const $brand" <> jsIdent n <> ": unique symbol;"
+  , "export interface " <> jsIdent n <> " extends $rt.Opaque {"
+  , "    readonly [$brand" <> jsIdent n <> "]: void;"
+  , "}"
+  , ""
+  ]
+
 dtsType :: Adt -> [Text]
 dtsType adt
   | isAllNullary adt =
       ("export type " <> name <> " = " <> T.intercalate " | " (map (quote . conName) cons) <> ";")
-        : [ "export const " <> conName c <> ": " <> name <> ";" | c <- cons ]
+        : [ "export const " <> jsIdent (conName c) <> ": " <> name <> ";" | c <- cons ]
         ++ [""]
   | otherwise = typeLine ++ [""] ++ map constructor cons ++ [""]
   where
-    name = adtName adt
+    name = jsIdent (adtName adt)
     cons = adtCons adt
     typeLine = case cons of
       [c] -> ["export type " <> name <> " = " <> conType c <> ";"]
       _ -> ("export type " <> name <> " =") : [ "    | " <> conType c <> end | (c, end) <- zip cons (map (const "") (drop 1 cons) ++ [";"]) ]
     constructor c
-      | nullary c = "export const " <> conName c <> ": " <> name <> ";"
-      | otherwise = "export function " <> conName c <> "(" <> typedParams c <> "): " <> name <> ";"
+      | nullary c = "export const " <> jsIdent (conName c) <> ": " <> name <> ";"
+      | otherwise = "export function " <> jsIdent (conName c) <> "(" <> typedParams c <> "): " <> name <> ";"
 
 dtsFunction :: Fn -> Text
 dtsFunction f =
@@ -115,7 +127,8 @@ tsType = \case
   TMaybe t -> tsType t <> " | null"
   TEither l r -> "$rt.Either<" <> tsType l <> ", " <> tsType r <> ">"
   TTuple ts -> tuple ts
-  TAdt n -> n
+  TAdt n -> jsIdent n
+  TOpaque n -> jsIdent n
   where
     element t@(TMaybe _) = "(" <> tsType t <> ")"
     element t = tsType t
@@ -128,20 +141,29 @@ tuple ts = "[" <> T.intercalate ", " (map tsType ts) <> "]"
 jsType :: Adt -> [Text]
 jsType adt
   | isAllNullary adt =
-      [ "export const " <> conName c <> " = " <> quote (conName c) <> ";" | c <- cons ]
+      [ "export const " <> jsIdent (conName c) <> " = " <> quote (conName c) <> ";" | c <- cons ]
         ++ [""] ++ enumCoders adt
   | otherwise = map constructor cons ++ [""] ++ coders adt
   where
     cons = adtCons adt
     constructor c
-      | nullary c = "export const " <> conName c <> " = " <> conValue c <> ";"
-      | otherwise = "export const " <> conName c <> " = (" <> jsParams c <> ") => (" <> conValue c <> ");"
+      | nullary c = "export const " <> jsIdent (conName c) <> " = " <> conValue c <> ";"
+      | otherwise = "export const " <> jsIdent (conName c) <> " = (" <> jsParams c <> ") => (" <> conValue c <> ");"
 
 jsFunction :: Fn -> [Text]
-jsFunction f = [lhs, "    " <> body]
+jsFunction f =
+  [lhs]
+    ++ ["    const $" <> a <> " = " <> arg t a <> ";" | (t, a) <- params, marshal t /= Ref]
+    ++ ["    return " <> body, "};"]
   where
-    lhs = "export const " <> jsIdent (fnName f) <> " = (" <> T.intercalate ", " (fnParams f) <> ") =>"
-    body = result ("$rt.call(" <> T.intercalate ", " (quote (exportSymbol f) : zipWith arg (fnArgs f) (fnParams f)) <> ")") <> ";"
+    params = zip (fnArgs f) (fnParams f)
+    lhs = "export const " <> jsIdent (fnName f) <> " = (" <> T.intercalate ", " (fnParams f) <> ") => {"
+    -- Finish conversions that can run user code (getters, iterators, toJSON)
+    -- before unwrapping any borrowed pointer, so disposal cannot race the call.
+    argument (TOpaque n, a) = "$ref" <> jsIdent n <> ".unwrap(" <> a <> ")"
+    argument (_, a) = "$" <> a
+    body = result ("$wasm.call(" <> T.intercalate ", " (quote (exportSymbol f) : map argument params) <> ")") <> ";"
+    result e | TOpaque n <- fnResult f = "$ref" <> jsIdent n <> ".wrap(" <> e <> ")"
     result e
       | marshal (fnResult f) == Json = decode (fnResult f) ("$rt.unpack(" <> e <> ")")
       | fnResult f == TBool = "$rt.unpackBool(" <> e <> ")"
@@ -178,10 +200,10 @@ conValue c = "{ " <> T.intercalate ", " (("$tag: " <> quote (conName c)) : field
 -- else is rejected.
 coders :: Adt -> [Text]
 coders adt =
-  ["function encode" <> name <> "(v) {", "    switch (v.$tag) {"]
+  ["function encode" <> jsIdent name <> "(v) {", "    switch (v.$tag) {"]
     ++ concat [caseLines c (encodeCon c) | c <- adtCons adt]
     ++ ["    }", "    return $rt.invalid(" <> quote name <> ", v);", "}", ""]
-    ++ ["function decode" <> name <> "(v) {", "    switch ($rt.decodeTag(v)) {"]
+    ++ ["function decode" <> jsIdent name <> "(v) {", "    switch ($rt.decodeTag(v)) {"]
     ++ concat [caseLines c (decodeCon c) | c <- adtCons adt]
     ++ ["    }", "    return $rt.invalid(" <> quote name <> ", v);", "}", ""]
   where
@@ -198,17 +220,17 @@ caseLines c expr = case expr of
 -- | Same for a type whose constructors all have no fields.
 enumCoders :: Adt -> [Text]
 enumCoders adt =
-  [ "function encode" <> name <> "(v) {"
+  [ "function encode" <> jsIdent name <> "(v) {"
   , "    switch (v) {"
   , "        " <> T.unwords ["case " <> quote (conName c) <> ":" | c <- adtCons adt] <> " return $rt.encodeEnum(v);"
   , "    }"
   , "    return $rt.invalid(" <> quote name <> ", v);"
   , "}"
   , ""
-  , "function decode" <> name <> "(v) {"
+  , "function decode" <> jsIdent name <> "(v) {"
   , "    switch ($rt.decodeTag(v)) {"
   ]
-    ++ [ "        case " <> quote (conName c) <> ": return " <> conName c <> ";" | c <- adtCons adt ]
+    ++ [ "        case " <> quote (conName c) <> ": return " <> jsIdent (conName c) <> ";" | c <- adtCons adt ]
     ++ ["    }", "    return $rt.invalid(" <> quote name <> ", v);", "}", ""]
   where
     name = adtName adt
@@ -231,13 +253,13 @@ encodeCon c = case conFields c of
 -- through the constructor, one record field per line.
 decodeCon :: Con -> [Text]
 decodeCon c = case conFields c of
-  _ | nullary c -> [conName c]
+  _ | nullary c -> [jsIdent (conName c)]
   Record fs ->
-    [conName c <> "({"]
+    [jsIdent (conName c) <> "({"]
       ++ ["    " <> key f <> ": " <> decode t ("$rt.decodeField(v, " <> quote f <> ")") <> "," | (f, t) <- fs]
       ++ ["})"]
   Positional ts ->
-    [conName c <> "(" <> T.intercalate ", " [decode t ("$rt.decodeArg(v, " <> showT i <> ", " <> showT (length ts) <> ")") | (i, t) <- zip [0 ..] ts] <> ")"]
+    [jsIdent (conName c) <> "(" <> T.intercalate ", " [decode t ("$rt.decodeArg(v, " <> showT i <> ", " <> showT (length ts) <> ")") | (i, t) <- zip [0 ..] ts] <> ")"]
 
 -- | Expression that encodes the value @v@ of type @t@.
 encode :: Ty -> Text -> Text
@@ -272,7 +294,7 @@ encoder = \case
   TText -> "$rt.encodeString"
   TDay -> "$rt.encodeDay"
   TUTCTime -> "$rt.encodeUTCTime"
-  TAdt n -> "encode" <> n
+  TAdt n -> "encode" <> jsIdent n
   t -> "(x) => " <> encode t "x"
 
 -- | Expression that decodes the Value @v@ as type @t@.
@@ -302,7 +324,7 @@ decoder = \case
   TText -> "$rt.decodeString"
   TDay -> "$rt.decodeString"
   TUTCTime -> "$rt.decodeUTCTime"
-  TAdt n -> "decode" <> n
+  TAdt n -> "decode" <> jsIdent n
   t | isNumber t -> "$rt.decodeNumber"
     | otherwise -> "(x) => " <> decode t "x"
   where

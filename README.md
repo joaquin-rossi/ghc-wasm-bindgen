@@ -48,9 +48,71 @@ Your own `data` and `newtype` declarations:
 
 Notes:
 
-- Every type the API uses must be exported with all its constructors.
+- Every type the API uses must be exported. Export all its constructors for
+  value conversion, or none for an opaque reference (see below). Exporting
+  only some constructors is not supported.
 - Not supported yet: `IO`, polymorphic functions, functions as arguments,
   operators, types with parameters and GADTs.
+- In JavaScript/TypeScript identifiers, primes become underscores
+  (`Secret'` → `Secret_`) and reserved words gain a trailing underscore.
+  Constructor tags and record field keys keep their Haskell names. Name
+  collisions after conversion are rejected.
+
+## Opaque references
+
+Export a type without its constructors to keep its values in Haskell:
+
+```haskell
+module ShapeWasm (Shape, circle, area, scale) where
+import Shape (Shape (..), area, scale)
+
+circle :: Double -> Shape
+circle = Circle
+```
+
+The generated TypeScript `Shape` is an opaque type with a `dispose()` method.
+Its contents and numeric handle are not exposed, and it has no JavaScript
+constructor:
+
+```ts
+const shape = circle(3);
+try {
+    console.log(area(shape));
+    const larger = scale(2, shape);
+    try {
+        console.log(area(larger));
+    } finally {
+        larger.dispose();
+    }
+} finally {
+    shape.dispose();
+}
+```
+
+- Each returned handle retains a Haskell value using `StablePtr`. Arguments
+  borrow their handles: calling a function does not consume them.
+- Each return creates an independently owned handle, even when the function
+  returns an input value. Assigning a handle to another JS variable shares
+  that same handle instead.
+- `dispose()` releases the handle's retention; Haskell's GC reclaims the
+  value once it has no other references. Repeated disposal has no effect.
+- Using a disposed handle, a different opaque type, or a handle from another
+  WASM instance throws `TypeError` before calling Haskell.
+- When available, `FinalizationRegistry` also releases forgotten handles.
+  Cleanup timing and execution are not guaranteed; use `dispose()` for
+  predictable release.
+- Opaque references currently work only as direct function arguments and
+  results. Containers such as `[Shape]` and `Maybe Shape`, and fields of
+  value-converted data types, cannot contain them. Opaque representations
+  themselves are not inspected and may contain functions or private types.
+
+Returned opaque values are evaluated to weak head normal form before being
+retained. Exceptions in deeper, lazy contents surface when a subsequent
+exported function evaluates those contents, as `HaskellError`.
+
+For contributors, `cabal test` generates the bindings used by
+`node --test test/runtime.test.mjs`. With the WASM toolchain on `PATH`, run
+`bash test/run-wasm.sh` for the integration tests against compiled Haskell.
 
 ## Errors
 

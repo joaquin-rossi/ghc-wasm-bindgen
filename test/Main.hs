@@ -4,11 +4,13 @@ import Control.Monad (unless)
 import System.Exit (exitFailure)
 
 import qualified Errors
+import qualified Opaque
 
 -- | Each group prints its own results and returns whether all passed.
 groups :: [(String, IO Bool)]
 groups =
   [ ("errors", Errors.tests)
+  , ("opaque", Opaque.tests)
   ]
 
 main :: IO ()

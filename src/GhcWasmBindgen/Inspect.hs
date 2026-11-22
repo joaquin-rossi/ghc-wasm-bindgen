@@ -121,9 +121,16 @@ describe modName apiMod = do
   let exports = modInfoExports info
       exported = Set.fromList exports
   things <- catMaybes <$> mapM lookupName exports
+  let exportedTcs = [tc | ATyCon tc <- things, isAlgTyCon tc, not (isClassTyCon tc)]
+      opaqueTcs = [tc | tc <- exportedTcs, not (null (tyConDataCons tc)), all ((`Set.notMember` exported) . getName) (tyConDataCons tc)]
+      opaque = Set.fromList (map tyConName opaqueTcs)
+      opaqueNames = Set.fromList (map (T.pack . getOccString) opaqueTcs)
 
   errs <- liftIO (newIORef [])
   let report e = modifyIORef' errs (e :)
+  forM_ opaqueTcs $ \tc ->
+    unless (null (tyConTyVars tc)) $
+      liftIO (report (getOccString tc ++ ": types with parameters are not supported yet"))
 
   -- Functions.
   fns <- liftIO $ fmap catMaybes $ forM things $ \case
@@ -138,8 +145,21 @@ describe modName apiMod = do
 
   -- Data types: every exported one plus everything reachable from them and
   -- from the function signatures.
-  let exportedTcs = [tc | ATyCon tc <- things, isAlgTyCon tc, not (isClassTyCon tc)]
-  adts <- liftIO (closure report exported (exportedTcs ++ concatMap snd fns))
+  adts <- liftIO (closure report exported opaque (exportedTcs ++ concatMap snd fns))
+
+  -- Only direct function arguments/results may own or borrow references.
+  resolvedFns <- liftIO $ fmap catMaybes $ forM (map fst fns) $ \f ->
+    case (,) <$> mapM (resolveOpaque opaqueNames True) (fnArgs f) <*> resolveOpaque opaqueNames True (fnResult f) of
+      Left e -> Nothing <$ report (T.unpack (fnName f) ++ ": " ++ e)
+      Right (args, res) -> pure (Just f {fnArgs = args, fnResult = res})
+  forM_ adts $ \(_, adt) -> forM_ (adtCons adt) $ \con -> do
+    let fields = case conFields con of
+          Record fs -> [(T.unpack n, t) | (n, t) <- fs]
+          Positional ts -> [(show i, t) | (i, t) <- zip [0 :: Int ..] ts]
+    forM_ fields $ \(fieldName, ty) ->
+      case resolveOpaque opaqueNames False ty of
+        Left e -> liftIO (report (T.unpack (adtName adt <> "." <> conName con) ++ " field " ++ fieldName ++ ": " ++ e))
+        Right _ -> pure ()
 
   -- Instances the generated code would otherwise duplicate.
   hasGeneric <- Set.fromList . map (tyConName . fst) <$> filterM (hasInstance genericClass . fst) adts
@@ -147,11 +167,28 @@ describe modName apiMod = do
   forM_ hasJson $ \(tc, _) ->
     liftIO (report (getOccString tc ++ ": already has aeson instances; ghc-wasm-bindgen derives its own with fixed options, remove them from the core"))
 
-  -- Mangled JS names must stay distinct.
-  let jsNames = [(jsIdent (fnName f), fnName f) | (f, _) <- fns]
-  forM_ (Map.toList (Map.fromListWith (++) [(j, [h]) | (j, h) <- jsNames])) $ \(j, hs) ->
-    when (length hs > 1) $
-      liftIO (report ("functions " ++ show hs ++ " would all be exported to JS as " ++ show j))
+  -- Type and value namespaces are separate: a type and its constructor may
+  -- share a name. Include private coders, which share the JS value namespace.
+  let checkNames scope names =
+        forM_ (Map.toAscList (Map.fromListWith (++) [(j, [h]) | (j, h) <- names])) $ \(j, hs) ->
+          when (length hs > 1) $
+            liftIO (report (scope ++ " " ++ show hs ++ " would all be emitted as " ++ show j))
+      valueTypes = map snd adts
+      typeNames = map adtName valueTypes ++ Set.toAscList opaqueNames
+      named kind n = (jsIdent n, kind <> " " <> n)
+  checkNames "TypeScript types" $
+    [("Either", "runtime Either"), ("HaskellError", "runtime HaskellError")]
+      ++ map (named "type") typeNames
+  checkNames "JavaScript bindings" $
+    [("HaskellError", "runtime HaskellError")]
+      ++ [named "function" (fnName f) | (f, _) <- fns]
+      ++ [named "constructor" (conName c) | adt <- valueTypes, c <- adtCons adt]
+      ++ [(prefix <> jsIdent (adtName adt), prefix <> " for " <> adtName adt) | adt <- valueTypes, prefix <- ["encode", "decode"]]
+  forM_ valueTypes $ \adt -> forM_ (adtCons adt) $ \con ->
+    case conFields con of
+      Record fs -> checkNames (T.unpack (adtName adt <> "." <> conName con) ++ " constructor parameters")
+        [(jsIdent n, n) | (n, _) <- fs]
+      Positional _ -> pure ()
 
   problems <- liftIO (readIORef errs)
   pure $
@@ -159,7 +196,8 @@ describe modName apiMod = do
       then Right Api
         { apiModule = T.pack modName
         , apiTypes = sortOn adtName [adt {adtGeneric = tyConName tc `Set.notMember` hasGeneric} | (tc, adt) <- adts]
-        , apiFns = sortOn fnName (map fst fns)
+        , apiOpaqueTypes = Set.toAscList opaqueNames
+        , apiFns = sortOn fnName resolvedFns
         }
       else Left (reverse problems)
 
@@ -181,8 +219,8 @@ hasInstance (cls, mods) tc = any matches <$> getInstancesForType (mkTyConTy tc)
 
 -- | Converts every reachable type constructor, reporting unsupported ones.
 -- Keeps first-seen order (exported types first).
-closure :: (String -> IO ()) -> Set.Set Name -> [TyCon] -> IO [(TyCon, Adt)]
-closure report exported = go Set.empty []
+closure :: (String -> IO ()) -> Set.Set Name -> Set.Set Name -> [TyCon] -> IO [(TyCon, Adt)]
+closure report exported opaque = go opaque []
   where
     go _ acc [] = pure (reverse acc)
     go seen acc (tc : rest)
@@ -199,8 +237,27 @@ closure report exported = go Set.empty []
                          , getName dc `Set.notMember` exported
                          ]
               unless (null missing) $
-                report (getOccString tc ++ ": used by the API, so the type and all its constructors must be exported (" ++ unwords (nub missing) ++ " missing); add `" ++ getOccString tc ++ " (..)` to the export list")
+                report (getOccString tc ++ ": used by the API, so the type and all its constructors must be exported for value conversion (" ++ unwords (nub missing) ++ " missing); export `" ++ getOccString tc ++ " (..)` for values or just `" ++ getOccString tc ++ "` for opaque references")
               go seen' ((tc, adt) : acc) (rest ++ more)
+
+-- | Resolve abstract names after inspection, rejecting ownership inside JSON.
+resolveOpaque :: Set.Set T.Text -> Bool -> Ty -> Either String Ty
+resolveOpaque names direct = go
+  where
+    nested = resolveOpaque names False
+    go (TAdt n) | n `Set.member` names =
+      if direct then Right (TOpaque n)
+      else Left ("opaque type " ++ T.unpack n ++ " is only supported as a direct function argument or result")
+    go (TList t) = TList <$> nested t
+    go (TVector t) = TVector <$> nested t
+    go (TNonEmpty t) = TNonEmpty <$> nested t
+    go (TSet t) = TSet <$> nested t
+    go (TMap k v) = TMap <$> nested k <*> nested v
+    go (TIntMap t) = TIntMap <$> nested t
+    go (TMaybe t) = TMaybe <$> nested t
+    go (TEither l r) = TEither <$> nested l <*> nested r
+    go (TTuple ts) = TTuple <$> mapM nested ts
+    go t = Right t
 
 ------------------------------------------------------------------------------
 -- Type conversion. Collects the data types it encounters.

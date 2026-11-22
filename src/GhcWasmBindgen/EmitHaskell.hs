@@ -22,6 +22,7 @@ emitHaskell api =
         , "{-# OPTIONS_GHC -Wno-orphans #-}"
         ]
       , ["{-# OPTIONS_GHC -optl-Wl,--export=" <> exportSymbol f <> " #-}" | f <- apiFns api]
+      , ["{-# OPTIONS_GHC -optl-Wl,--export=ghc_wasm_bindgen_free #-}" | not (null (apiOpaqueTypes api))]
       , [ "module Main (main) where"
         , ""
         , "import qualified GhcWasmBindgen.Runtime as R"
@@ -29,6 +30,12 @@ emitHaskell api =
         , ""
         ]
       , concatMap instances (apiTypes api)
+      , if null (apiOpaqueTypes api) then [] else
+          [ "ghc_wasm_bindgen_free :: R.StablePtr () -> IO Int"
+          , "ghc_wasm_bindgen_free p = R.guardedIO (R.release p)"
+          , "foreign export javascript \"ghc_wasm_bindgen_free sync\" ghc_wasm_bindgen_free :: R.StablePtr () -> IO Int"
+          , ""
+          ]
       , concatMap wrapper (apiFns api)
       , ["main :: IO ()", "main = pure ()"]
       ]
@@ -49,7 +56,10 @@ instances adt =
 wrapper :: Fn -> [Text]
 wrapper f =
   [ sym <> " :: " <> sig
-  , sym <> T.concat [" " <> a | a <- args] <> " = R.guarded (" <> result <> ")"
+  , sym <> T.concat [" " <> a | a <- args] <> " = R.guardedIO $ do"
+  ]
+  ++ ["  " <> a <> "' <- R.deRefStablePtr " <> a | (TOpaque _, a) <- zip (fnArgs f) args]
+  ++ [ "  " <> result
   , ""
   , "foreign export javascript \"" <> sym <> " sync\" " <> sym <> " :: " <> sig
   , ""
@@ -60,10 +70,11 @@ wrapper f =
     sig = T.intercalate " -> " (map ffiType (fnArgs f) ++ ["IO " <> ffiType (fnResult f)])
     call = T.unwords (("Api." <> fnName f) : zipWith argIn (fnArgs f) args)
     result = case marshal (fnResult f) of
-      Native -> call
-      Str -> "R.toJSString (" <> call <> ")"
-      TextStr -> "R.toJSText (" <> call <> ")"
-      Json -> "R.toJS (" <> call <> ")"
+      Native -> "R.evaluate (" <> call <> ")"
+      Str -> "R.evaluate (R.toJSString (" <> call <> "))"
+      TextStr -> "R.evaluate (R.toJSText (" <> call <> "))"
+      Json -> "R.evaluate (R.toJS (" <> call <> "))"
+      Ref -> "R.retain (" <> call <> ")"
 
 argIn :: Ty -> Text -> Text
 argIn ty a = case marshal ty of
@@ -71,10 +82,12 @@ argIn ty a = case marshal ty of
   Str -> "(R.fromJSString " <> a <> ")"
   TextStr -> "(R.fromJSText " <> a <> ")"
   Json -> "(R.fromJS " <> a <> ")"
+  Ref -> a <> "'"
 
 ffiType :: Ty -> Text
 ffiType = \case
   TDouble -> "Double"
   TInt -> "Int"
   TBool -> "Bool"
+  TOpaque n -> "(R.StablePtr Api." <> n <> ")"
   _ -> "R.JSString"
