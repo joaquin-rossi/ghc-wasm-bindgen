@@ -23,6 +23,13 @@ cases =
   , ("Nested.hs", "keys: opaque type Secret")
   , ("NestedField.hs", "Box.Box field secret: opaque type Secret")
   , ("AbstractParameterized.hs", "types with parameters are not supported yet")
+  , ("NameCollisions.hs", "type Secret'")
+  , ("NameCollisions.hs", "type Secret_")
+  , ("NameCollisions.hs", "type Value'")
+  , ("NameCollisions.hs", "constructor Build'")
+  , ("NameCollisions.hs", "encode for Value'")
+  , ("NameCollisions.hs", "function f'")
+  , ("NameCollisions.hs", "Fields.Fields constructor parameters")
   ]
 
 tests :: IO Bool

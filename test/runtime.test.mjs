@@ -7,6 +7,7 @@ const bindings = new URL("../dist-newstyle/test-bindings/opaque.js", import.meta
 let importId = 0;
 // load reads real bytes; the mocked instantiator supplies the test exports.
 await writeFile(new URL("opaque.wasm", bindings), new Uint8Array());
+await writeFile(new URL("names.wasm", bindings), new Uint8Array());
 
 function fakeWasm(setError) {
     const values = new Map();
@@ -43,6 +44,10 @@ function fakeWasm(setError) {
         bg_publicCount: (json) => JSON.parse(json).count,
         bg_echoPublic: (json) => json,
         bg_choose: (b) => JSON.stringify(b ? "First" : "Second"),
+        bg_echoValue: (json) => json,
+        bg_echoValues: (json) => json,
+        bg_echoChoice: (json) => json,
+        bg_echoChoices: (json) => json,
         ghc_wasm_bindgen_free(p) {
             assert.ok(values.delete(p), "a pointer was freed twice");
             freed.push(p);
@@ -81,7 +86,7 @@ function setup(t, withFinalizers = true) {
     });
     return {
         registries, instances,
-        load: () => import(`${bindings.href}?test=${++importId}`),
+        load: (name = "opaque") => import(`${new URL(`${name}.js`, bindings).href}?test=${++importId}`),
     };
 }
 
@@ -218,4 +223,24 @@ test("invalid value arguments preserve ownership and JSON/enum bindings still wo
     assert.deepEqual(api.echoPublic(value), value);
     assert.equal(api.choose(true), api.First);
     assert.equal(api.choose(false), api.Second);
+});
+
+test("primed names produce usable bindings while tags, fields and errors keep their Haskell names", async (t) => {
+    const env = setup(t);
+    const api = await env.load("names");
+    const ref = api.makeSecret(12);
+    const same = api.sameSecret(ref);
+    ref.dispose();
+    assert.equal(api.readSecret(same), 12);
+    assert.throws(() => api.readSecret({}), /Secret'/);
+    same.dispose();
+
+    const value = api.Value_({ "field'": 7 });
+    assert.deepEqual(value, { $tag: "Value'", "field'": 7 });
+    assert.deepEqual(api.echoValue(value), value);
+    assert.deepEqual(api.echoValues([value, api.Empty_, api.Positional_(3)]), [value, api.Empty_, api.Positional_(3)]);
+    assert.equal(api.First_, "First'");
+    assert.equal(api.echoChoice(api.First_), api.First_);
+    assert.deepEqual(api.echoChoices([api.First_, api.Second_]), [api.First_, api.Second_]);
+    assert.throws(() => api.echoValue({ $tag: "Value_", "field'": 7 }), /Value'/);
 });

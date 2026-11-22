@@ -53,6 +53,10 @@ Notes:
   only some constructors is not supported.
 - Not supported yet: `IO`, polymorphic functions, functions as arguments,
   operators, types with parameters and GADTs.
+- In JavaScript/TypeScript identifiers, primes become underscores
+  (`Secret'` → `Secret_`) and reserved words gain a trailing underscore.
+  Constructor tags and record field keys keep their Haskell names. Name
+  collisions after conversion are rejected.
 
 ## Opaque references
 

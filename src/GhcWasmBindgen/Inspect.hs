@@ -167,11 +167,28 @@ describe modName apiMod = do
   forM_ hasJson $ \(tc, _) ->
     liftIO (report (getOccString tc ++ ": already has aeson instances; ghc-wasm-bindgen derives its own with fixed options, remove them from the core"))
 
-  -- Mangled JS names must stay distinct.
-  let jsNames = [(jsIdent (fnName f), fnName f) | (f, _) <- fns]
-  forM_ (Map.toList (Map.fromListWith (++) [(j, [h]) | (j, h) <- jsNames])) $ \(j, hs) ->
-    when (length hs > 1) $
-      liftIO (report ("functions " ++ show hs ++ " would all be exported to JS as " ++ show j))
+  -- Type and value namespaces are separate: a type and its constructor may
+  -- share a name. Include private coders, which share the JS value namespace.
+  let checkNames scope names =
+        forM_ (Map.toAscList (Map.fromListWith (++) [(j, [h]) | (j, h) <- names])) $ \(j, hs) ->
+          when (length hs > 1) $
+            liftIO (report (scope ++ " " ++ show hs ++ " would all be emitted as " ++ show j))
+      valueTypes = map snd adts
+      typeNames = map adtName valueTypes ++ Set.toAscList opaqueNames
+      named kind n = (jsIdent n, kind <> " " <> n)
+  checkNames "TypeScript types" $
+    [("Either", "runtime Either"), ("HaskellError", "runtime HaskellError")]
+      ++ map (named "type") typeNames
+  checkNames "JavaScript bindings" $
+    [("HaskellError", "runtime HaskellError")]
+      ++ [named "function" (fnName f) | (f, _) <- fns]
+      ++ [named "constructor" (conName c) | adt <- valueTypes, c <- adtCons adt]
+      ++ [(prefix <> jsIdent (adtName adt), prefix <> " for " <> adtName adt) | adt <- valueTypes, prefix <- ["encode", "decode"]]
+  forM_ valueTypes $ \adt -> forM_ (adtCons adt) $ \con ->
+    case conFields con of
+      Record fs -> checkNames (T.unpack (adtName adt <> "." <> conName con) ++ " constructor parameters")
+        [(jsIdent n, n) | (n, _) <- fs]
+      Positional _ -> pure ()
 
   problems <- liftIO (readIORef errs)
   pure $
